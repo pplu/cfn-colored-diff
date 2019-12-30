@@ -1,5 +1,9 @@
 package Cfn::Colored::Diff {
   use Moose;
+
+  our $VERSION = '0.01';
+  #ABSTRACT: Show differences between two cloudformation files
+
   with 'MooseX::Getopt';
   use Cfn;
   use Cfn::Diff;
