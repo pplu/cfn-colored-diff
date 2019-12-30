@@ -1,10 +1,11 @@
 #!perl
 
-use Cfn;
-use Cfn::Diff;
-
-use File::Slurp;
-
+package CfnDiffCommand {
+  use Moose;
+  with 'MooseX::Getopt';
+  use Cfn;
+  use Cfn::Diff;
+  use File::Slurp;
   use String::Diff;
   use Term::ANSIColor qw/:constants/;
   use Scalar::Util;
@@ -23,7 +24,7 @@ use File::Slurp;
     required      => 1,
   );
 
-  option pretty => (
+  has pretty => (
     is            => 'ro',
     isa           => 'Bool',
     documentation => 'Pretty print the changes in JSON',
@@ -49,19 +50,14 @@ use File::Slurp;
     if (my ($region, $stack_name) = ($self->$side =~ m/^cfn\:(.*?)\:(.*)$/)) {
       require Paws;
       return Cfn->from_json(Paws->service('CloudFormation', region => $region)->GetTemplate(StackName => $stack_name, TemplateStage => 'Original')->TemplateBody);
-    } elsif (my ($file) = ($self->$side =~ m/^file\:(.*)$/)) {
+    } elsif (-e $self->$side) {
       require File::Slurp;
       # read_file needs to be in scalar context to return all lines as one string
-      return Cfn->from_json(scalar(File::Slurp::read_file($file)));
+      return Cfn->from_json(scalar(File::Slurp::read_file($self->$side)));
     } else {
       die "Unknown format for side $side";
     }
   }
-
-  has differences => (is => 'ro', isa => 'Cfn::Diff', lazy => 1, default => sub {
-    my $self = shift;
-    return Cfn::Diff->new(left => $self->_left_cfn, right => $self->_right_cfn);
-  });
 
   sub _is_dynamic {
     my ($self, $element) = @_;
@@ -73,12 +69,14 @@ use File::Slurp;
 
     printf "Comparing %s to %s\n", $self->left, $self->right;
 
-    if (@{ $self->differences->changes } == 0) {
+    my $differences = Cfn::Diff->new(left => $self->_left_cfn, right => $self->_right_cfn);
+
+    if (@{ $differences->changes } == 0) {
       print "No changes detected\n";
       return;
     }
 
-    my @incompats = grep { $_->isa('Cfn::Diff::IncompatibleChange') } @{ $self->differences->changes };
+    my @incompats = grep { $_->isa('Cfn::Diff::IncompatibleChange') } @{ $differences->changes };
 
     if (@incompats) {
       foreach my $change (@incompats) {
@@ -88,7 +86,7 @@ use File::Slurp;
       return;
     }
 
-    foreach my $change (@{ $self->differences->changes }) {
+    foreach my $change (@{ $differences->changes }) {
       my $compare_from = $change->from;
       my $compare_to   = $change->to;
 
@@ -175,5 +173,7 @@ use File::Slurp;
       }
     }
   }
+}
 
-1;
+my $cmd = CfnDiffCommand->new_with_options;
+$cmd->run;
